@@ -40,6 +40,7 @@ workbuddy-checkin — 腾讯 CodeBuddy (WorkBuddy) 独立签到 / 积分查询�
 
 import json
 import os
+import socket
 import sys
 import time
 import glob
@@ -185,6 +186,12 @@ def http_post_json(url, body=None, headers=None, timeout=HTTP_TIMEOUT):
         return None, e.code, f"HTTP {e.code}: {raw[:200]}"
     except urllib.error.URLError as e:
         return None, 0, f"网络错误: {e.reason}"
+    except (TimeoutError, socket.timeout) as e:
+        # urlopen 超时抛的是裸 TimeoutError，不会被 URLError 接住；
+        # 不接住会直接崩掉整批签到（见 2026-11-03 验证）
+        return None, 0, f"请求超时 ({HTTP_TIMEOUT}s): {e}"
+    except OSError as e:
+        return None, 0, f"网络错误: {e}"
 
     # 解析 {code, msg, data} 信封
     try:
@@ -891,7 +898,15 @@ def cmd_signin(args):
             skipped_n += 1
             continue
 
-        result = checkin_one_account(path, auth_data)
+        try:
+            result = checkin_one_account(path, auth_data)
+        except Exception as e:
+            # 单个账号的意外异常不应崩掉整批签到和汇总/Bark 通知
+            print(f"  {auth_data.get('account', {}).get('nickname', '')}({auth_data.get('account', {}).get('uid', '?')}): 异常 — {e}")
+            result = {"error": str(e),
+                      "uid": auth_data.get("account", {}).get("uid", ""),
+                      "nickname": auth_data.get("account", {}).get("nickname", ""),
+                      "region": "global" if is_global(auth_data) else "cn"}
         print_signin_result(result, verbose=True)
         results.append(result)
 
