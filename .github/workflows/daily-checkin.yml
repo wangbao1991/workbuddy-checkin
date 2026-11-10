@@ -18,18 +18,29 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: 写入凭证
+      - name: 写入多账号凭证
         env:
-          WORKBUDDY_AUTH: ${{ secrets.WORKBUDDY_AUTH }}
+          WORKBUDDY_ACCOUNTS: ${{ secrets.WORKBUDDY_ACCOUNTS }}
         run: |
           mkdir -p auths
-          if [ -n "$WORKBUDDY_AUTH" ]; then
-            echo "$WORKBUDDY_AUTH" > auths/workbuddy-auth.json
-            echo "凭证已写入"
-          else
-            echo "未设置 WORKBUDDY_AUTH secret，跳过"
+          if [ -z "$WORKBUDDY_ACCOUNTS" ]; then
+            echo "未设置 WORKBUDDY_ACCOUNTS secret，跳过"
             exit 1
           fi
+          echo "$WORKBUDDY_ACCOUNTS" | python3 -c '
+          import sys, json, os
+          data = json.load(sys.stdin)
+          if not isinstance(data, list):
+              data = [data]
+          for acc in data:
+              uid = (acc.get("account", {}) or {}).get("uid") or acc.get("uid")
+              if not uid:
+                  raise SystemExit("凭证缺少 uid，无法写入")
+              path = f"auths/workbuddy-{uid}.json"
+              with open(path, "w", encoding="utf-8") as f:
+                  json.dump(acc, f, indent=2, ensure_ascii=False)
+          print(f"已写入 {len(data)} 个账号凭证")
+          '
 
       - name: 执行签到 + Bark 通知
         env:
